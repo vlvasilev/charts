@@ -1,0 +1,133 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  labels:
+    app: fluent-bit-test
+    role: logging-test
+  name: fluent-bit-test
+  namespace: garden
+spec:
+  selector:
+    matchLabels:
+      app: fluent-bit-test
+      role: logging-test
+  template:
+    metadata:
+      labels:
+        app: fluent-bit-test
+        networking.gardener.cloud/to-dns: allowed
+        networking.gardener.cloud/to-seed-apiserver: allowed
+        role: logging-test
+    spec:
+      serviceAccount: fluent-bit
+      serviceAccountName: fluent-bit
+      automountServiceAccountToken: true
+      containers:
+      - command:
+        - /fluent-bit/bin/fluent-bit
+        - -e
+        - /fluent-bit/plugins/out_loki.so
+        - -c
+        - /fluent-bit/etc/fluent-bit.conf
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: spec.nodeName
+        image: eu.gcr.io/sap-se-gcr-k8s-public/fluent/fluent-bit@sha256:95c5a5bb8999aec357009ac40bfd5f607958908c2170b5099e0da620e5c68805
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /
+            port: 2020
+            scheme: HTTP
+          initialDelaySeconds: 90
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+        name: fluent-bit
+        ports:
+        - containerPort: 2020
+          name: metrics
+          protocol: TCP
+        - containerPort: 2021
+          name: metrics-plugin
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 3
+          httpGet:
+            path: /api/v1/metrics/prometheus
+            port: 2020
+            scheme: HTTP
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+        resources:
+          limits:
+            cpu: 300m
+            memory: 400Mi
+          requests:
+            cpu: 150m
+            memory: 150Mi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /fluent-bit/etc
+          name: config
+        - mountPath: /var/log
+          name: varlog
+        - mountPath: /var/lib/docker/containers
+          name: varlibdockercontainers
+          readOnly: true
+        - mountPath: /fluent-bit/plugins
+          name: plugins
+      dnsPolicy: ClusterFirst
+      initContainers:
+      - command:
+        - cp
+        - /source/plugins/.
+        - /plugins
+        - -fr
+        image: eu.gcr.io/sap-se-gcr-k8s-public/eu_gcr_io/gardener-project/gardener/fluent-bit-to-loki@sha256:b5703d4f694128e6b92963424ad9d6c599a1aa57e88bcfd13ab7bb137a116a07
+        imagePullPolicy: IfNotPresent
+        name: install-plugin
+        resources: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /plugins
+          name: plugins
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      terminationGracePeriodSeconds: 10
+      tolerations:
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/master
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/control-plane
+      - effect: NoExecute
+        key: pool.worker.gardener.cloud/dedicated-for
+        operator: Equal
+        value: etcd
+      volumes:
+      - configMap:
+          defaultMode: 420
+          name: fluent-bit-config-test
+        name: config
+      - hostPath:
+          path: /var/log
+          type: ""
+        name: varlog
+      - hostPath:
+          path: /var/lib/docker/containers
+          type: ""
+        name: varlibdockercontainers
+      - emptyDir: {}
+        name: plugins
+  updateStrategy:
+    rollingUpdate:
+      maxUnavailable: 1
+    type: RollingUpdate

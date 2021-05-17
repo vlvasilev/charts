@@ -1,0 +1,22 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-fluentbit-test
+  namespace: garden
+spec:
+  egress:
+  - ports:
+    - port: 3100
+      protocol: TCP
+    to:
+    - podSelector:
+        matchLabels:
+          app: loki
+          gardener.cloud/role: logging
+          role: logging
+  podSelector:
+    matchLabels:
+      app: fluent-bit-test
+      role: logging-test
+  policyTypes:
+  - Egress
